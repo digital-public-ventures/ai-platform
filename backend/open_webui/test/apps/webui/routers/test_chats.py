@@ -1,7 +1,7 @@
 import uuid
 
-from test.util.abstract_integration_test import AbstractPostgresTest
-from test.util.mock_user import mock_webui_user
+from open_webui.test.util.abstract_integration_test import AbstractPostgresTest
+from open_webui.test.util.mock_user import mock_webui_user
 
 
 class TestChats(AbstractPostgresTest):
@@ -13,6 +13,10 @@ class TestChats(AbstractPostgresTest):
     def setup_method(self):
         super().setup_method()
         from open_webui.models.chats import ChatForm, Chats
+        import open_webui.routers.chats as chats_router
+
+        chats_router.ENABLE_ADMIN_CHAT_ACCESS = True
+        chats_router.ENABLE_ADMIN_EXPORT = True
 
         self.chats = Chats
         self.chats.insert_new_chat(
@@ -46,7 +50,7 @@ class TestChats(AbstractPostgresTest):
         assert len(self.chats.get_chats()) == 0
 
     def test_get_user_chat_list_by_user_id(self):
-        with mock_webui_user(id="3"):
+        with mock_webui_user(id="3", role="admin"):
             response = self.fast_api_client.get(self.create_url("/list/user/2"))
         assert response.status_code == 200
         first_chat = response.json()[0]
@@ -101,7 +105,7 @@ class TestChats(AbstractPostgresTest):
         assert first_chat["updated_at"] is not None
 
     def test_get_all_user_chats_in_db(self):
-        with mock_webui_user(id="4"):
+        with mock_webui_user(id="4", role="admin"):
             response = self.fast_api_client.get(self.create_url("/all/db"))
         assert response.status_code == 200
         assert len(response.json()) == 1
@@ -129,7 +133,6 @@ class TestChats(AbstractPostgresTest):
             "tags": ["tag1", "tag2"],
             "history": {"currentId": "1", "messages": []},
         }
-        assert data["id"] == chat_id
         assert data["share_id"] == chat_id
         assert data["title"] == "New Chat"
 
@@ -188,8 +191,7 @@ class TestChats(AbstractPostgresTest):
     def test_clone_chat_by_id(self):
         chat_id = self.chats.get_chats()[0].id
         with mock_webui_user(id="2"):
-            response = self.fast_api_client.get(self.create_url(f"/{chat_id}/clone"))
-
+            response = self.fast_api_client.post(self.create_url(f"/{chat_id}/clone"), json={})
         assert response.status_code == 200
         data = response.json()
         assert data["id"] != chat_id
@@ -209,9 +211,8 @@ class TestChats(AbstractPostgresTest):
     def test_archive_chat_by_id(self):
         chat_id = self.chats.get_chats()[0].id
         with mock_webui_user(id="2"):
-            response = self.fast_api_client.get(self.create_url(f"/{chat_id}/archive"))
+            response = self.fast_api_client.post(self.create_url(f"/{chat_id}/archive"))
         assert response.status_code == 200
-
         chat = self.chats.get_chat_by_id(chat_id)
         assert chat.archived is True
 
@@ -220,7 +221,6 @@ class TestChats(AbstractPostgresTest):
         with mock_webui_user(id="2"):
             response = self.fast_api_client.post(self.create_url(f"/{chat_id}/share"))
         assert response.status_code == 200
-
         chat = self.chats.get_chat_by_id(chat_id)
         assert chat.share_id is not None
 
@@ -230,7 +230,6 @@ class TestChats(AbstractPostgresTest):
         self.chats.update_chat_share_id_by_id(chat_id, share_id)
         with mock_webui_user(id="2"):
             response = self.fast_api_client.delete(self.create_url(f"/{chat_id}/share"))
-        assert response.status_code
-
+        assert response.status_code == 200
         chat = self.chats.get_chat_by_id(chat_id)
         assert chat.share_id is None

@@ -1,0 +1,232 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres-cypress
+    environment:
+      - POSTGRES_DB=openwebui
+      - POSTGRES_USER=openwebui
+      - POSTGRES_PASSWORD=openwebui-test-password
+    tmpfs:
+      - /var/lib/postgresql/data:rw,noexec,nosuid,size=100m
+    networks:
+      - cypress-test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openwebui -d openwebui"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles:
+      - local-ollama
+      - docker-ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_DEBUG=INFO
+      - OLLAMA_HOST=http://0.0.0.0:11434
+      - OLLAMA_CONTEXT_LENGTH=4096
+      - OLLAMA_KEEP_ALIVE=5m
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - cypress-test-network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - docker-ollama
+
+  model-preloader:
+    image: alpine:3.22
+    container_name: model-preloader
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - cypress-test-network
+    command: |
+      sh -c "
+        apk add --no-cache curl &&
+        echo 'Preloading Ollama model qwen:0.5b-chat-v1.5-q2_K...' &&
+        curl -X POST http://ollama:11434/api/pull -d '{\"name\":\"qwen:0.5b-chat-v1.5-q2_K\"}'
+      "
+    profiles:
+      - docker-ollama
+
+  open-webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: open-webui
+    depends_on:
+      ollama:
+        condition: service_healthy
+      model-preloader:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "8000:8080"
+    environment:
+      - WEBUI_SECRET_KEY=secret
+      - DATABASE_URL=postgresql://openwebui:openwebui-test-password@postgres:5432/openwebui
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - ENV=production
+      - CORS_ALLOW_ORIGIN=*
+      - ENABLE_PERSISTENT_CONFIG=False
+      - WEBUI_AUTH=True
+      - ENABLE_SIGNUP=True
+      - ENABLE_LOGIN_FORM=True
+      - ENABLE_ADMIN_EXPORT=True
+      - DEFAULT_USER_ROLE=pending
+      - OPENAI_API_KEY=""
+      - OPENAI_BASE_URL=""
+      - OPENAI_ORGANIZATION=""
+      - OPENAI_PROJECT=""
+    # volumes:
+    #   - open_webui_data:/app/backend/data
+    networks:
+      - cypress-test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/config"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - docker-ollama
+
+  open-webui-local:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: open-webui-local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+      - "8000:8080"
+    environment:
+      - WEBUI_SECRET_KEY=secret
+      - DATABASE_URL=postgresql://openwebui:openwebui-test-password@postgres:5432/openwebui
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - ENV=production
+      - CORS_ALLOW_ORIGIN=*
+      - ENABLE_PERSISTENT_CONFIG=False
+      - WEBUI_AUTH=True
+      - ENABLE_SIGNUP=True
+      - ENABLE_LOGIN_FORM=True
+      - ENABLE_ADMIN_EXPORT=True
+      - DEFAULT_USER_ROLE=pending
+      - OPENAI_API_KEY=""
+      - OPENAI_BASE_URL=""
+      - OPENAI_ORGANIZATION=""
+      - OPENAI_PROJECT=""
+
+    # volumes:
+    #   - open_webui_data:/app/backend/data
+    networks:
+      - cypress-test-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/config"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    profiles:
+      - local-ollama
+
+  cypress-test-docker:
+    build:
+      context: .
+      dockerfile: cypress.Dockerfile
+    container_name: cypress-test-docker
+    depends_on:
+      open-webui:
+        condition: service_healthy
+    environment:
+      - CYPRESS_baseUrl=http://open-webui:8080
+    volumes:
+      - cypress_videos:/e2e/cypress/videos
+      - cypress_screenshots:/e2e/cypress/screenshots
+    networks:
+      - cypress-test-network
+    profiles:
+      - docker-ollama
+
+  cypress-test-local:
+    build:
+      context: .
+      dockerfile: cypress.Dockerfile
+    container_name: cypress-test-local
+    depends_on:
+      open-webui-local:
+        condition: service_healthy
+    environment:
+      - CYPRESS_baseUrl=http://open-webui-local:8080
+    volumes:
+      - cypress_videos:/e2e/cypress/videos
+      - cypress_screenshots:/e2e/cypress/screenshots
+    networks:
+      - cypress-test-network
+    profiles:
+      - local-ollama
+
+  log-collector-docker:
+    image: alpine:3.22
+    container_name: log-collector-docker
+    depends_on:
+      - cypress-test-docker
+    volumes:
+      - cypress_videos:/videos
+      - cypress_screenshots:/screenshots
+      - ./logs:/logs
+    networks:
+      - cypress-test-network
+    command: |
+      sh -c "
+        mkdir -p /logs &&
+        echo 'Collecting test artifacts...' &&
+        cp -r /videos/* /logs/ 2>/dev/null || echo 'No videos to collect' &&
+        cp -r /screenshots/* /logs/ 2>/dev/null || echo 'No screenshots to collect' &&
+        echo 'Test artifacts collected in ./logs directory'
+      "
+    profiles:
+      - docker-ollama
+
+  log-collector-local:
+    image: alpine:3.22
+    container_name: log-collector-local
+    depends_on:
+      - cypress-test-local
+    volumes:
+      - cypress_videos:/videos
+      - cypress_screenshots:/screenshots
+      - ./logs:/logs
+    networks:
+      - cypress-test-network
+    command: |
+      sh -c "
+        mkdir -p /logs &&
+        echo 'Collecting test artifacts...' &&
+        cp -r /videos/* /logs/ 2>/dev/null || echo 'No videos to collect' &&
+        cp -r /screenshots/* /logs/ 2>/dev/null || echo 'No screenshots to collect' &&
+        echo 'Test artifacts collected in ./logs directory'
+      "
+    profiles:
+      - local-ollama
+
+volumes:
+  ollama_data:
+  open_webui_data:
+  cypress_videos:
+  cypress_screenshots:
+
+networks:
+  cypress-test-network:
+    driver: bridge

@@ -1,5 +1,5 @@
-from test.util.abstract_integration_test import AbstractPostgresTest
-from test.util.mock_user import mock_webui_user
+from open_webui.test.util.abstract_integration_test import AbstractPostgresTest
+from open_webui.test.util.mock_user import mock_webui_user
 
 
 class TestAuths(AbstractPostgresTest):
@@ -15,15 +15,15 @@ class TestAuths(AbstractPostgresTest):
 
     def test_get_session_user(self):
         with mock_webui_user():
-            response = self.fast_api_client.get(self.create_url(""))
-        assert response.status_code == 200
-        assert response.json() == {
-            "id": "1",
-            "name": "John Doe",
-            "email": "john.doe@openwebui.com",
-            "role": "user",
-            "profile_image_url": "/user.png",
-        }
+            resp = self.fast_api_client.get(self.create_url(""))
+        assert resp.status_code == 200
+        data = resp.json()
+        # Validate core user fields; newer API also returns token metadata and optional profile fields.
+        assert data["id"] == "1"
+        assert data["name"] == "John Doe"
+        assert data["email"] == "john.doe@openwebui.com"
+        assert data["role"] == "user"
+        assert data["profile_image_url"] == "/user.png"
 
     def test_update_profile(self):
         from open_webui.utils.auth import get_password_hash
@@ -64,13 +64,9 @@ class TestAuths(AbstractPostgresTest):
             )
         assert response.status_code == 200
 
-        old_auth = self.auths.authenticate_user(
-            "john.doe@openwebui.com", "old_password"
-        )
+        old_auth = self.auths.authenticate_user("john.doe@openwebui.com", "old_password")
         assert old_auth is None
-        new_auth = self.auths.authenticate_user(
-            "john.doe@openwebui.com", "new_password"
-        )
+        new_auth = self.auths.authenticate_user("john.doe@openwebui.com", "new_password")
         assert new_auth is not None
 
     def test_signin(self):

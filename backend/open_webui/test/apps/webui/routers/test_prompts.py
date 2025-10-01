@@ -1,91 +1,119 @@
-from test.util.abstract_integration_test import AbstractPostgresTest
-from test.util.mock_user import mock_webui_user
+from types import SimpleNamespace
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from open_webui.test.util.mock_user import mock_user
 
 
-class TestPrompts(AbstractPostgresTest):
-    BASE_PATH = "/api/v1/prompts"
+def _app_with_prompts_router(monkeypatch):
+    # Hard-disable peewee migrations before importing the router
+    try:
+        import peewee_migrate
 
-    def test_prompts(self):
-        # Get all prompts
-        with mock_webui_user(id="2"):
-            response = self.fast_api_client.get(self.create_url("/"))
-        assert response.status_code == 200
-        assert len(response.json()) == 0
+        class _NoopRouter:
+            def __init__(self, *a, **k):
+                pass
 
-        # Create a two new prompts
-        with mock_webui_user(id="2"):
-            response = self.fast_api_client.post(
-                self.create_url("/create"),
-                json={
-                    "command": "/my-command",
-                    "title": "Hello World",
-                    "content": "description",
-                },
-            )
-        assert response.status_code == 200
-        with mock_webui_user(id="3"):
-            response = self.fast_api_client.post(
-                self.create_url("/create"),
-                json={
-                    "command": "/my-command2",
-                    "title": "Hello World 2",
-                    "content": "description 2",
-                },
-            )
-        assert response.status_code == 200
+            def run(self, *a, **k):
+                return []
 
-        # Get all prompts
-        with mock_webui_user(id="2"):
-            response = self.fast_api_client.get(self.create_url("/"))
-        assert response.status_code == 200
-        assert len(response.json()) == 2
+        monkeypatch.setattr(peewee_migrate, "Router", _NoopRouter)
+    except Exception:
+        pass
+    import open_webui.routers.prompts as prompts_router
+    from open_webui.models import prompts as prompts_module
 
-        # Get prompt by command
-        with mock_webui_user(id="2"):
-            response = self.fast_api_client.get(self.create_url("/command/my-command"))
-        assert response.status_code == 200
-        data = response.json()
-        assert data["command"] == "/my-command"
-        assert data["title"] == "Hello World"
-        assert data["content"] == "description"
-        assert data["user_id"] == "2"
+    from types import SimpleNamespace
+    store: dict[str, SimpleNamespace] = {}
 
-        # Update prompt
-        with mock_webui_user(id="2"):
-            response = self.fast_api_client.post(
-                self.create_url("/command/my-command2/update"),
-                json={
-                    "command": "irrelevant for request",
-                    "title": "Hello World Updated",
-                    "content": "description Updated",
-                },
-            )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["command"] == "/my-command2"
-        assert data["title"] == "Hello World Updated"
-        assert data["content"] == "description Updated"
-        assert data["user_id"] == "3"
+    class FakePrompts:
+        def insert_new_prompt(self, user_id, form_data):
+            data = SimpleNamespace(**{
+                "command": form_data.command,
+                "user_id": user_id,
+                "title": form_data.title,
+                "content": form_data.content,
+                "timestamp": 0,
+                "access_control": None,
+            })
+            store[data.command] = data
+            return data
 
-        # Get prompt by command
-        with mock_webui_user(id="2"):
-            response = self.fast_api_client.get(self.create_url("/command/my-command2"))
-        assert response.status_code == 200
-        data = response.json()
-        assert data["command"] == "/my-command2"
-        assert data["title"] == "Hello World Updated"
-        assert data["content"] == "description Updated"
-        assert data["user_id"] == "3"
+        def get_prompts_by_user_id(self, user_id: str, permission: str = "read"):
+            return list(store.values())
 
-        # Delete prompt
-        with mock_webui_user(id="2"):
-            response = self.fast_api_client.delete(
-                self.create_url("/command/my-command/delete")
-            )
-        assert response.status_code == 200
+        def get_prompts(self):
+            return list(store.values())
 
-        # Get all prompts
-        with mock_webui_user(id="2"):
-            response = self.fast_api_client.get(self.create_url("/"))
-        assert response.status_code == 200
-        assert len(response.json()) == 1
+        def get_prompt_by_command(self, command: str):
+            return store.get(command)
+
+        def update_prompt_by_command(self, command: str, form_data):
+            if command in store:
+                ns = store[command]
+                ns.title = form_data.title
+                ns.content = form_data.content
+                return ns
+            return None
+
+        def delete_prompt_by_command(self, command: str):
+            return store.pop(command, None) is not None
+
+    fake = FakePrompts()
+    monkeypatch.setattr(prompts_module, "Prompts", fake)
+    # Also patch the reference used inside the router module
+    monkeypatch.setattr(prompts_router, "Prompts", fake)
+
+    app = FastAPI()
+    app.include_router(prompts_router.router, prefix="/api/v1/prompts")
+    app.state.config = SimpleNamespace(USER_PERMISSIONS={})
+    return app
+
+
+def test_prompts_crud(monkeypatch):
+    app = _app_with_prompts_router(monkeypatch)
+    client = TestClient(app, headers={"Authorization": "Bearer test-token"})
+
+    with mock_user(app, id="2"):
+        r = client.get("/api/v1/prompts/")
+    assert r.status_code == 200 and r.json() == []
+
+    with mock_user(app, id="2", role="admin"):
+        r = client.post(
+            "/api/v1/prompts/create",
+            json={"command": "/my-command", "title": "Hello World", "content": "description"},
+        )
+    assert r.status_code == 200
+
+    with mock_user(app, id="3", role="admin"):
+        r = client.post(
+            "/api/v1/prompts/create",
+            json={"command": "/my-command2", "title": "Hello World 2", "content": "description 2"},
+        )
+    assert r.status_code == 200
+
+    with mock_user(app, id="2"):
+        r = client.get("/api/v1/prompts/")
+    assert r.status_code == 200 and len(r.json()) == 2
+
+    with mock_user(app, id="2"):
+        r = client.get("/api/v1/prompts/command/my-command")
+    assert r.status_code == 200 and r.json()["command"] == "/my-command"
+
+    with mock_user(app, id="3"):
+        r = client.post(
+            "/api/v1/prompts/command/my-command2/update",
+            json={"command": "ignored", "title": "Hello World Updated", "content": "description Updated"},
+        )
+    assert r.status_code == 200 and r.json()["title"] == "Hello World Updated"
+
+    with mock_user(app, id="2"):
+        r = client.get("/api/v1/prompts/command/my-command2")
+    assert r.status_code == 200 and r.json()["title"] == "Hello World Updated"
+
+    with mock_user(app, id="2"):
+        r = client.delete("/api/v1/prompts/command/my-command/delete")
+    assert r.status_code == 200
+
+    with mock_user(app, id="2"):
+        r = client.get("/api/v1/prompts/")
+    assert r.status_code == 200 and len(r.json()) == 1

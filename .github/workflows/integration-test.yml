@@ -1,0 +1,325 @@
+name: Integration Test
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  pull_request:
+    branches:
+      - main
+      - dev
+
+jobs:
+  cypress-run:
+    name: Run Cypress Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize build space
+        uses: AdityaGarg8/remove-unwanted-software@v4.1
+        with:
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # - name: Setup Node.js
+      #   uses: actions/setup-node@v4
+      #   with:
+      #     node-version: '22'
+
+      # - name: Build and run Compose Stack
+      #   run: |
+      #     docker compose \
+      #       --file docker-compose.yaml \
+      #       --file docker-compose.api.yaml \
+      #       up --detach --build
+
+      # - name: Delete Docker build cache
+      #   run: |
+      #     docker builder prune --all --force
+
+      # - name: Wait for Ollama to be up
+      #   timeout-minutes: 5
+      #   run: |
+      #     until curl --output /dev/null --silent --fail http://localhost:11434; do
+      #       printf '.'
+      #       sleep 1
+      #     done
+      #     echo "Service is up!"
+
+      # - name: Preload Ollama model
+      #   run: |
+      #     docker exec ollama ollama pull qwen:0.5b-chat-v1.5-q2_K
+
+      # - name: Install Cypress dependencies
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install --no-install-recommends -y \
+      #       libgtk2.0-0 \
+      #       libgtk-3-0 \
+      #       libgbm-dev \
+      #       libnotify-dev \
+      #       libgconf-2-4 \
+      #       libnss3-dev \
+      #       libxss1 \
+      #       libasound2-dev \
+      #       libxtst6 \
+      #       xauth \
+      #       xvfb \
+      #       lsof
+
+      # - name: Verify Open WebUI before Cypress
+      #   run: |
+      #     echo "=== Pre-Cypress verification ==="
+      #     echo "Container status:"
+      #     docker ps
+      #     echo "Testing connection:"
+      #     curl -v http://127.0.0.1:3000 || echo "Connection failed"
+      #     echo "Port listeners:"
+      #     sudo lsof -i :3000 || echo "No listeners on port 3000"
+      #     echo "Recent logs:"
+      #     docker compose logs open-webui --tail=10
+      #     echo "Node version:"
+      #     node -v
+
+      # - name: Run Cypress
+      #   run: |
+      #     echo "Running Cypress against $BASE_URL"
+      #     DEBUG=cypress:* npx cypress run --browser chrome --config baseUrl=$BASE_URL
+      #   env:
+      #     LIBGL_ALWAYS_SOFTWARE: 1
+      #     BASE_URL: http://127.0.0.1:3000
+
+      # - name: Cypress run
+      #   uses: cypress-io/github-action@v6
+      #   env:
+      #     LIBGL_ALWAYS_SOFTWARE: 1
+      #   with:
+      #     browser: chrome
+      #     wait-on: http://127.0.0.1:3000
+      #     wait-on-timeout: 120
+      #     config: baseUrl=http://127.0.0.1:3000
+
+      - name: Build & Run Cypress Stack (docker profile)
+        run: |
+          set -e
+          docker compose -f docker-compose.cypress.yaml --profile docker-ollama up --build -d
+          echo "Waiting for open-webui health..."
+          for i in {1..60}; do
+            if [ "$(docker inspect -f '{{.State.Health.Status}}' open-webui)" = "healthy" ]; then
+              echo "open-webui healthy"
+              break
+            fi
+            sleep 3
+            [ $i -eq 60 ] && echo "Timeout waiting for open-webui" && docker compose -f docker-compose.cypress.yaml logs open-webui && exit 1
+          done
+          echo "Starting Cypress test container (will exit after run)..."
+          docker compose -f docker-compose.cypress.yaml run --name cypress-runner --rm cypress-test-docker
+
+      - name: Upload Cypress videos
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cypress-videos
+          path: cypress/videos
+          if-no-files-found: ignore
+
+      - name: Extract Compose logs
+        if: always()
+        run: |
+          docker compose logs > compose-logs.txt
+
+      - name: Upload Compose logs
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compose-logs
+          path: compose-logs.txt
+          if-no-files-found: ignore
+
+  pytest:
+    name: Run Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11.11
+
+      - name: Set up uv
+        uses: yezz123/setup-uv@v4
+        with:
+          uv-venv: venv
+
+      - name: pytest run
+        run: |
+          cd backend
+          uv add pytest-asyncio
+          uv run pytest . -o log_cli=true -o log_cli_level=INFO
+
+  migration_test:
+    name: Run Migration Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    #      mysql:
+    #        image: mysql
+    #        env:
+    #          MYSQL_ROOT_PASSWORD: mysql
+    #          MYSQL_DATABASE: mysql
+    #        options: >-
+    #          --health-cmd "mysqladmin ping -h localhost"
+    #          --health-interval 10s
+    #          --health-timeout 5s
+    #          --health-retries 5
+    #        ports:
+    #          - 3306:3306
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up uv
+        uses: yezz123/setup-uv@v4
+        with:
+          uv-venv: venv
+
+      - name: Activate virtualenv
+        run: |
+          . venv/bin/activate
+          echo PATH=$PATH >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: |
+          uv pip install -r backend/requirements.txt
+
+      - name: Test backend with SQLite
+        id: sqlite
+        env:
+          WEBUI_SECRET_KEY: secret-key
+          GLOBAL_LOG_LEVEL: debug
+        run: |
+          cd backend
+          uvicorn open_webui.main:app --port "8080" --forwarded-allow-ips '*' &
+          UVICORN_PID=$!
+          # Wait up to 40 seconds for the server to start
+          for i in {1..40}; do
+              curl -s http://localhost:8080/api/config > /dev/null && break
+              sleep 1
+              if [ $i -eq 40 ]; then
+                  echo "Server failed to start"
+                  kill -9 $UVICORN_PID
+                  exit 1
+              fi
+          done
+          # Check that the server is still running after 5 seconds
+          sleep 5
+          if ! kill -0 $UVICORN_PID; then
+              echo "Server has stopped"
+              exit 1
+          fi
+
+      - name: Test backend with Postgres
+        if: success() || steps.sqlite.conclusion == 'failure'
+        env:
+          WEBUI_SECRET_KEY: secret-key
+          GLOBAL_LOG_LEVEL: debug
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+          DATABASE_POOL_SIZE: 10
+          DATABASE_POOL_MAX_OVERFLOW: 10
+          DATABASE_POOL_TIMEOUT: 30
+        run: |
+          cd backend
+          uvicorn open_webui.main:app --port "8081" --forwarded-allow-ips '*' &
+          UVICORN_PID=$!
+          # Wait up to 20 seconds for the server to start
+          for i in {1..20}; do
+              curl -s http://localhost:8081/api/config > /dev/null && break
+              sleep 1
+              if [ $i -eq 20 ]; then
+                  echo "Server failed to start"
+                  kill -9 $UVICORN_PID
+                  exit 1
+              fi
+          done
+          # Check that the server is still running after 5 seconds
+          sleep 5
+          if ! kill -0 $UVICORN_PID; then
+              echo "Server has stopped"
+              exit 1
+          fi
+
+          # Check that service will reconnect to postgres when connection will be closed
+          status_code=$(curl --write-out %{http_code} -s --output /dev/null http://localhost:8081/health/db)
+          if [[ "$status_code" -ne 200 ]] ; then
+            echo "Server has failed before postgres reconnect check"
+            exit 1
+          fi
+
+          echo "Terminating all connections to postgres..."
+          python -c "import os, psycopg2 as pg2; \
+            conn = pg2.connect(dsn=os.environ['DATABASE_URL'].replace('+pool', '')); \
+            cur = conn.cursor(); \
+            cur.execute('SELECT pg_terminate_backend(psa.pid) FROM pg_stat_activity psa WHERE datname = current_database() AND pid <> pg_backend_pid();')"
+
+          status_code=$(curl --write-out %{http_code} -s --output /dev/null http://localhost:8081/health/db)
+          if [[ "$status_code" -ne 200 ]] ; then
+            echo "Server has not reconnected to postgres after connection was closed: returned status $status_code"
+            exit 1
+          fi
+
+#      - name: Test backend with MySQL
+#        if: success() || steps.sqlite.conclusion == 'failure' || steps.postgres.conclusion == 'failure'
+#        env:
+#          WEBUI_SECRET_KEY: secret-key
+#          GLOBAL_LOG_LEVEL: debug
+#          DATABASE_URL: mysql://root:mysql@localhost:3306/mysql
+#        run: |
+#          cd backend
+#          uvicorn open_webui.main:app --port "8083" --forwarded-allow-ips '*' &
+#          UVICORN_PID=$!
+#          # Wait up to 20 seconds for the server to start
+#          for i in {1..20}; do
+#              curl -s http://localhost:8083/api/config > /dev/null && break
+#              sleep 1
+#              if [ $i -eq 20 ]; then
+#                  echo "Server failed to start"
+#                  kill -9 $UVICORN_PID
+#                  exit 1
+#              fi
+#          done
+#          # Check that the server is still running after 5 seconds
+#          sleep 5
+#          if ! kill -0 $UVICORN_PID; then
+#              echo "Server has stopped"
+#              exit 1
+#          fi

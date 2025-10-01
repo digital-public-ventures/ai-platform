@@ -15,15 +15,50 @@ describe('Settings', () => {
 		cy.loginAdmin();
 		// Visit the home page
 		cy.visit('/');
+		// Dismiss any welcome modals
+		cy.dismissWelcomeModal();
+		// Write all visible aria-labels to log file
+		cy.get('body').then(($body) => {
+			const ariaLabels = [];
+			$body.find('[aria-label]').each((i, el) => {
+				ariaLabels.push(el.getAttribute('aria-label'));
+			});
+			cy.log('Visible aria-labels:', ariaLabels);
+		});
+		cy.screenshot('settings-before-user-menu-click');
 		// Click on the user menu
-		cy.get('button[aria-label="User Menu"]').click();
+		cy.get('button', { timeout: 15000 })
+			.filter((_, btn) => {
+				function getAllTextRecursively(element: Element): string {
+					let text = '';
+					for (const child of Array.from(element.children)) {
+						text += (child as HTMLElement).innerHTML.toLowerCase();
+						text += getAllTextRecursively(child);
+					}
+					return text;
+				}
+				const allText = getAllTextRecursively(btn);
+				return allText.includes('user') && allText.includes('menu');
+			})
+			.first()
+			.click();
+		cy.screenshot('settings-after-user-menu-click');
 		// Click on the settings link
-		cy.get('button').contains('Settings').click();
+		cy.get('[role="menuitem"]')
+			.filter((_, el) => {
+				return Array.from(el.children).some((child) =>
+					child.innerHTML.toLowerCase().includes('settings')
+				);
+			})
+			.first()
+			.click();
+		cy.screenshot('settings-after-user-menu-settings-click');
 	});
 
 	context('General', () => {
 		it('user can open the General modal and hit save', () => {
 			cy.get('button').contains('General').click();
+			cy.screenshot('settings-after-user-menu-settings-general-click');
 			cy.get('button').contains('Save').click();
 		});
 	});
@@ -31,6 +66,7 @@ describe('Settings', () => {
 	context('Interface', () => {
 		it('user can open the Interface modal and hit save', () => {
 			cy.get('button').contains('Interface').click();
+			cy.screenshot('settings-after-user-menu-settings-interface-click');
 			cy.get('button').contains('Save').click();
 		});
 	});
@@ -38,6 +74,7 @@ describe('Settings', () => {
 	context('Audio', () => {
 		it('user can open the Audio modal and hit save', () => {
 			cy.get('button').contains('Audio').click();
+			cy.screenshot('settings-after-user-menu-settings-audio-click');
 			cy.get('button').contains('Save').click();
 		});
 	});
@@ -45,12 +82,14 @@ describe('Settings', () => {
 	context('Chats', () => {
 		it('user can open the Chats modal', () => {
 			cy.get('button').contains('Chats').click();
+			cy.screenshot('settings-after-user-menu-settings-chats-click');
 		});
 	});
 
 	context('Account', () => {
 		it('user can open the Account modal and hit save', () => {
 			cy.get('button').contains('Account').click();
+			cy.screenshot('settings-after-user-menu-settings-account-click');
 			cy.get('button').contains('Save').click();
 		});
 	});
@@ -58,6 +97,7 @@ describe('Settings', () => {
 	context('About', () => {
 		it('user can open the About modal', () => {
 			cy.get('button').contains('About').click();
+			cy.screenshot('settings-after-user-menu-settings-about-click');
 		});
 	});
 });

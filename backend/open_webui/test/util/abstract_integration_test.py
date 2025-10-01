@@ -2,22 +2,22 @@ import logging
 import os
 import time
 
-import docker
 import pytest
-from docker import DockerClient
-from pytest_docker.plugin import get_docker_ip
 from fastapi.testclient import TestClient
-from sqlalchemy import text, create_engine
+from sqlalchemy import text
 
 
 log = logging.getLogger(__name__)
 
 
 def get_fast_api_client():
-    from main import app
+    from open_webui.main import app
 
-    with TestClient(app) as c:
-        return c
+    # Provide a default Authorization header so routes expecting a Bearer token don't
+    # fall back to static index.html when tests omit it. The token value is a dummy;
+    # dependency overrides in tests supply the user object. decode_token will return None,
+    # which is tolerated by current route logic.
+    return TestClient(app, headers={"Authorization": "Bearer test-token"})
 
 
 class AbstractIntegrationTest:
@@ -32,11 +32,13 @@ class AbstractIntegrationTest:
         path_parts = [part.strip() for part in path_parts if part.strip() != ""]
         query_parts = ""
         if query_params:
-            query_parts = "&".join(
-                [f"{key}={value}" for key, value in query_params.items()]
-            )
+            query_parts = "&".join([f"{key}={value}" for key, value in query_params.items()])
             query_parts = f"?{query_parts}"
-        return "/".join(parts + path_parts) + query_parts
+        url = "/".join(parts + path_parts)
+        # Ensure trailing slash for base path root endpoints (FastAPI registers '/prefix/' when using '/')
+        if not path_parts:
+            url = url + "/"
+        return url + query_parts
 
     @classmethod
     def setup_class(cls):
@@ -54,61 +56,41 @@ class AbstractIntegrationTest:
 
 
 class AbstractPostgresTest(AbstractIntegrationTest):
-    DOCKER_CONTAINER_NAME = "postgres-test-container-will-get-deleted"
-    docker_client: DockerClient
+    # Historically Postgres via Docker; for tests we default to fast local SQLite.
 
     @classmethod
-    def _create_db_url(cls, env_vars_postgres: dict) -> str:
-        host = get_docker_ip()
-        user = env_vars_postgres["POSTGRES_USER"]
-        pw = env_vars_postgres["POSTGRES_PASSWORD"]
-        port = 8081
-        db = env_vars_postgres["POSTGRES_DB"]
-        return f"postgresql://{user}:{pw}@{host}:{port}/{db}"
+    def _ensure_sqlite_db(cls) -> str:
+        # Persist a test db under the test folder to avoid tmp cleanup races.
+        from pathlib import Path
+
+        base_dir = Path(__file__).resolve().parent.parent
+        tmp_dir = base_dir / ".tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        db_path = tmp_dir / "webui.db"
+        return f"sqlite:///{db_path}"
 
     @classmethod
     def setup_class(cls):
         super().setup_class()
+        # Use SQLite for tests by default
         try:
-            env_vars_postgres = {
-                "POSTGRES_USER": "user",
-                "POSTGRES_PASSWORD": "example",
-                "POSTGRES_DB": "openwebui",
-            }
-            cls.docker_client = docker.from_env()
-            cls.docker_client.containers.run(
-                "postgres:16.2",
-                detach=True,
-                environment=env_vars_postgres,
-                name=cls.DOCKER_CONTAINER_NAME,
-                ports={5432: ("0.0.0.0", 8081)},
-                command="postgres -c log_statement=all",
-            )
-            time.sleep(0.5)
-
-            database_url = cls._create_db_url(env_vars_postgres)
+            database_url = os.environ.get("DATABASE_URL") or cls._ensure_sqlite_db()
             os.environ["DATABASE_URL"] = database_url
-            retries = 10
-            db = None
-            while retries > 0:
-                try:
-                    from open_webui.config import OPEN_WEBUI_DIR
 
-                    db = create_engine(database_url, pool_pre_ping=True)
-                    db = db.connect()
-                    log.info("postgres is ready!")
-                    break
-                except Exception as e:
-                    log.warning(e)
-                    time.sleep(3)
-                    retries -= 1
+            # Import app/db and create SQLAlchemy tables for tests
+            from open_webui.internal.db import Base, engine
 
-            if db:
-                # import must be after setting env!
-                cls.fast_api_client = get_fast_api_client()
-                db.close()
-            else:
-                raise Exception("Could not connect to Postgres")
+            # Ensure models are imported so tables are registered with Base
+            import open_webui.models.users  # noqa: F401
+            import open_webui.models.chats  # noqa: F401
+            import open_webui.models.prompts  # noqa: F401
+            import open_webui.models.models  # noqa: F401
+            import open_webui.models.auths  # noqa: F401
+
+            Base.metadata.create_all(bind=engine)
+
+            # FastAPI client after env is set
+            cls.fast_api_client = get_fast_api_client()
         except Exception as ex:
             log.error(ex)
             cls.teardown_class()
@@ -136,26 +118,40 @@ class AbstractPostgresTest(AbstractIntegrationTest):
     @classmethod
     def teardown_class(cls) -> None:
         super().teardown_class()
-        cls.docker_client.containers.get(cls.DOCKER_CONTAINER_NAME).remove(force=True)
 
     def teardown_method(self):
         from open_webui.internal.db import Session
+        from sqlalchemy import inspect
+        from sqlalchemy.engine import Connection
+        from sqlalchemy.exc import SQLAlchemyError
 
         # rollback everything not yet committed
         Session.commit()
 
-        # truncate all tables
-        tables = [
-            "auth",
-            "chat",
-            "chatidtag",
-            "document",
-            "memory",
-            "model",
-            "prompt",
-            "tag",
-            '"user"',
-        ]
-        for table in tables:
-            Session.execute(text(f"TRUNCATE TABLE {table}"))
-        Session.commit()
+        # Dialect-aware cleanup of all application tables to ensure isolated tests.
+        try:
+            bind: Connection = Session.get_bind()  # type: ignore
+            dialect_name = bind.dialect.name if bind else "unknown"
+            inspector = inspect(bind)
+            table_names = inspector.get_table_names()
+
+            # Filter to only tables we own (heuristic: exclude alembic versioning if present later)
+            # Keep explicit ordering for Postgres TRUNCATE CASCADE (order doesn't matter there) but
+            # for DELETE we should delete child tables first if FK constraints exist; simplest is
+            # to disable constraint checking for sqlite or rely on ON DELETE CASCADE; if issues arise
+            # we can extend with foreign key introspection.
+
+            if dialect_name == "postgresql":
+                # Use single TRUNCATE with CASCADE for efficiency and to avoid FK ordering issues.
+                if table_names:
+                    tbl_list = ", ".join(f'"{t}"' if not t.startswith('"') else t for t in table_names)
+                    Session.execute(text(f"TRUNCATE TABLE {tbl_list} CASCADE"))
+            else:
+                # Generic path (e.g., sqlite) – use DELETE FROM.
+                for t in table_names:
+                    Session.execute(text(f'DELETE FROM "{t}"'))
+            Session.commit()
+        except SQLAlchemyError as e:
+            # Log and continue; failing to clean up should not hide the original test failure.
+            log.warning(f"Test DB cleanup failed: {e}")
+            Session.rollback()
