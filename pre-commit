@@ -1,0 +1,30 @@
+git rm -r --cached build/ >/dev/null 2>&1 || true
+(while sleep 1; do printf '.'; done) &
+spinner_pid=$!
+
+echo "Scanning commit... 30-60s 💅🥱⏳"
+
+# Exit on any error
+set -e
+
+# Ensure cleanup happens even if script fails
+cleanup() {
+    echo "Detected secrets in staged files!"
+    kill $spinner_pid
+}
+
+if ! gitleaks protect --staged -v --redact; then
+    cleanup
+    exit 1
+fi
+
+if ! git diff --staged --name-only -z | xargs -0 detect-secrets-hook --baseline .secrets.baseline; then
+    cleanup
+    exit 1
+fi
+
+kill $spinner_pid
+
+npm install
+npm run format
+npm run i18n:parse
