@@ -2,10 +2,6 @@
 
 **Acknowledgments:** This project was hard forked from Open Webui on April 17th, 2025. See [Open Webui](https://docs.openwebui.com/) for more info.
 
-## Demo
-
-![Open WebUI Demo](./demo.gif)
-
 ## System Reqs
 
 Before you begin, ensure your system meets these minimum requirements:
