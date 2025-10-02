@@ -223,6 +223,7 @@ from open_webui.config import (
     SERPLY_API_KEY,
     SERPSTACK_API_KEY,
     SERPSTACK_HTTPS,
+    SHOW_ONBOARDING,
     TAVILY_API_KEY,
     TAVILY_EXTRACT_DEPTH,
     BING_SEARCH_V7_ENDPOINT,
@@ -517,6 +518,7 @@ app.state.config.ENABLE_DIRECT_CONNECTIONS = ENABLE_DIRECT_CONNECTIONS
 ########################################
 
 app.state.config.WEBUI_URL = WEBUI_URL
+app.state.config.SHOW_ONBOARDING = SHOW_ONBOARDING
 app.state.config.ENABLE_SIGNUP = ENABLE_SIGNUP
 app.state.config.ENABLE_LOGIN_FORM = ENABLE_LOGIN_FORM
 
@@ -1256,7 +1258,7 @@ async def get_app_config(request: Request):
     user_count = Users.get_num_users()
     onboarding = False
 
-    if user is None:
+    if user is None and app.state.config.SHOW_ONBOARDING:
         onboarding = user_count == 0
 
     return {

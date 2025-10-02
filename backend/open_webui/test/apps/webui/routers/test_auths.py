@@ -64,9 +64,13 @@ class TestAuths(AbstractPostgresTest):
             )
         assert response.status_code == 200
 
-        old_auth = self.auths.authenticate_user("john.doe@openwebui.com", "old_password")
+        old_auth = self.auths.authenticate_user(
+            "john.doe@openwebui.com", "old_password"
+        )
         assert old_auth is None
-        new_auth = self.auths.authenticate_user("john.doe@openwebui.com", "new_password")
+        new_auth = self.auths.authenticate_user(
+            "john.doe@openwebui.com", "new_password"
+        )
         assert new_auth is not None
 
     def test_signin(self):
@@ -93,7 +97,14 @@ class TestAuths(AbstractPostgresTest):
         assert data["token"] is not None and len(data["token"]) > 0
         assert data["token_type"] == "Bearer"
 
-    def test_signup(self):
+    def test_signup(self, monkeypatch):
+        # Mock the app state config values to enable signup for this test
+        # Access the underlying FastAPI app from the TestClient
+        from open_webui.main import app as main_app
+
+        main_app.state.config.ENABLE_SIGNUP = True
+        main_app.state.config.ENABLE_LOGIN_FORM = True
+
         response = self.fast_api_client.post(
             self.create_url("/signup"),
             json={

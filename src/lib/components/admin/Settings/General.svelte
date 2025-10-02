@@ -135,7 +135,7 @@
 										v{WEBUI_VERSION}
 									</Tooltip>
 
-									<a
+									<!-- <a
 										href="https://github.com/open-webui/open-webui/releases/tag/v{version.latest}"
 										target="_blank"
 									>
@@ -144,7 +144,7 @@
 											: updateAvailable
 												? `(v${version.latest} ${$i18n.t('available!')})`
 												: $i18n.t('(latest)')}
-									</a>
+									</a> -->
 								</div>
 
 								<button
@@ -158,7 +158,7 @@
 								</button>
 							</div>
 
-							<button
+							<!-- <button
 								class=" text-xs px-3 py-1.5 bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-lg font-medium"
 								type="button"
 								on:click={() => {
@@ -166,11 +166,11 @@
 								}}
 							>
 								{$i18n.t('Check for updates')}
-							</button>
+							</button> -->
 						</div>
 					</div>
 
-					<div class="mb-2.5">
+					<!-- <div class="mb-2.5">
 						<div class="flex w-full justify-between items-center">
 							<div class="text-xs pr-2">
 								<div class="">
@@ -214,11 +214,11 @@
 								</a>
 							</div>
 						</div>
-					</div>
+					</div> -->
 
 					<div class="mb-2.5">
 						<div class="flex w-full justify-between items-center">
-							<div class="text-xs pr-2">
+							<!-- <div class="text-xs pr-2">
 								<div class="">
 									{$i18n.t('License')}
 								</div>
@@ -260,7 +260,7 @@
 										</span>
 									</a>
 								{/if}
-							</div>
+							</div> -->
 
 							<!-- <button
 								class="flex-shrink-0 text-xs px-3 py-1.5 bg-gray-50 hover:bg-gray-100 dark:bg-gray-850 dark:hover:bg-gray-800 transition rounded-lg font-medium"

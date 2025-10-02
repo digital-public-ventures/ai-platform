@@ -8,7 +8,7 @@
 	import SlideShow from './common/SlideShow.svelte';
 	import ArrowRightCircle from './icons/ArrowRightCircle.svelte';
 
-	export let show = true;
+	export let show = false;
 	export let getStartedHandler = () => {};
 
 	function setLogoImage() {
@@ -68,8 +68,8 @@
 					<Marquee
 						duration={5000}
 						words={[
-							$i18n.t('Explore the cosmos'),
-							$i18n.t('Unlock mysteries'),
+							$i18n.t('Explore the cosmos!'),
+							$i18n.t('Unlock mysteries!'),
 							$i18n.t('Chart new frontiers'),
 							$i18n.t('Dive into knowledge'),
 							$i18n.t('Discover wonders'),

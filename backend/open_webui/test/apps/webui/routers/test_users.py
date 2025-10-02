@@ -26,7 +26,15 @@ def _app_with_users_router(monkeypatch):
     store = {}
 
     class FakeUsers:
-        def insert_new_user(self, id, name, email, profile_image_url="/user.png", role="pending", oauth_sub=None):
+        def insert_new_user(
+            self,
+            id,
+            name,
+            email,
+            profile_image_url="/user.png",
+            role="pending",
+            oauth_sub=None,
+        ):
             data = {
                 "id": id,
                 "name": name,
@@ -42,8 +50,8 @@ def _app_with_users_router(monkeypatch):
             store[id] = data
             return data
 
-        def get_users(self, filter=None, skip=None, limit=None):
-            return {"users": list(store.values()), "total": len(store)}
+        def get_users(self, skip=None, limit=None):
+            return list(store.values())
 
         def get_user_by_id(self, id):
             return SimpleNamespace(**store.get(id)) if id in store else None
@@ -116,25 +124,42 @@ def test_users_flow(monkeypatch):
 
     # Seed two users directly via fake table
     from open_webui.models import users as users_module
-    users_module.Users.insert_new_user(id="1", name="user 1", email="user1@openwebui.com", profile_image_url="/user1.png", role="user")
-    users_module.Users.insert_new_user(id="2", name="user 2", email="user2@openwebui.com", profile_image_url="/user2.png", role="user")
+
+    users_module.Users.insert_new_user(
+        id="1",
+        name="user 1",
+        email="user1@openwebui.com",
+        profile_image_url="/user1.png",
+        role="user",
+    )
+    users_module.Users.insert_new_user(
+        id="2",
+        name="user 2",
+        email="user2@openwebui.com",
+        profile_image_url="/user2.png",
+        role="user",
+    )
 
     # Admin lists users
     with mock_user(app, id="3", role="admin"):
         r = client.get("/api/v1/users/")
     assert r.status_code == 200
     body = r.json()
-    assert body["total"] == 2
-    _assert_user(body["users"], "1")
-    _assert_user(body["users"], "2")
+    assert len(body) == 2
+    _assert_user(body, "1")
+    _assert_user(body, "2")
 
-    # Update role via admin update endpoint
+    # Update user details (but not role) via admin update endpoint
     with mock_user(app, id="3", role="admin"):
         r = client.post(
             "/api/v1/users/2/update",
-            json={"role": "admin", "name": "user 2", "email": "user2@openwebui.com", "profile_image_url": "/user2.png"},
+            json={
+                "name": "user 2 updated",
+                "email": "user2@openwebui.com",
+                "profile_image_url": "/user2.png",
+            },
         )
-    assert r.status_code == 200 and r.json()["role"] == "admin"
+    assert r.status_code == 200 and r.json()["name"] == "user 2 updated"
 
     # User settings
     with mock_user(app, id="2"):
@@ -144,13 +169,19 @@ def test_users_flow(monkeypatch):
     with mock_user(app, id="2"):
         r = client.post(
             "/api/v1/users/user/settings/update",
-            json={"ui": {"attr1": "value1", "attr2": "value2"}, "model_config": {"attr3": "value3", "attr4": "value4"}},
+            json={
+                "ui": {"attr1": "value1", "attr2": "value2"},
+                "model_config": {"attr3": "value3", "attr4": "value4"},
+            },
         )
     assert r.status_code == 200
 
     with mock_user(app, id="2"):
         r = client.get("/api/v1/users/user/settings")
-    assert r.status_code == 200 and r.json() == {"ui": {"attr1": "value1", "attr2": "value2"}, "model_config": {"attr3": "value3", "attr4": "value4"}}
+    assert r.status_code == 200 and r.json() == {
+        "ui": {"attr1": "value1", "attr2": "value2"},
+        "model_config": {"attr3": "value3", "attr4": "value4"},
+    }
 
     # User info
     with mock_user(app, id="1"):
@@ -158,7 +189,10 @@ def test_users_flow(monkeypatch):
     assert r.status_code == 200 and r.json() is None
 
     with mock_user(app, id="1"):
-        r = client.post("/api/v1/users/user/info/update", json={"attr1": "value1", "attr2": "value2"})
+        r = client.post(
+            "/api/v1/users/user/info/update",
+            json={"attr1": "value1", "attr2": "value2"},
+        )
     assert r.status_code == 200
 
     with mock_user(app, id="1"):
@@ -168,7 +202,7 @@ def test_users_flow(monkeypatch):
     # Get user by id
     with mock_user(app, id="1"):
         r = client.get("/api/v1/users/2")
-    assert r.status_code == 200 and r.json()["name"] == "user 2"
+    assert r.status_code == 200 and r.json()["name"] == "user 2 updated"
 
     # Delete user by id (admin)
     with mock_user(app, id="3", role="admin"):
@@ -177,4 +211,4 @@ def test_users_flow(monkeypatch):
 
     with mock_user(app, id="3", role="admin"):
         r = client.get("/api/v1/users/")
-    assert r.status_code == 200 and r.json()["total"] == 1
+    assert r.status_code == 200 and len(r.json()) == 1
