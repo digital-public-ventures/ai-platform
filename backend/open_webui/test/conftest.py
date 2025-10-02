@@ -22,6 +22,9 @@ def pytest_configure(config):
     os.environ.setdefault("DATA_DIR", str(tmp_dir))
     os.environ.setdefault("DATABASE_URL", f"sqlite:///{tmp_dir / 'webui.db'}")
 
+    # Avoid pgvector configuration issues in tests by using chroma as the default vector DB
+    os.environ.setdefault("VECTOR_DB", "chroma")
+
     # Disable legacy Peewee migrations by monkeypatching peewee_migrate.Router.run to a no-op
     # before open_webui.internal.db gets imported by the app/models.
     try:

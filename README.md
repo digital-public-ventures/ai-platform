@@ -35,7 +35,7 @@ The `git clone` command downloads the project files from GitHub. The `cd ai-plat
 
 ### 2. Frontend Setup (User Interface)
 
-> [!IMPORTANT]
+> \[!IMPORTANT]
 > **Use Node.js:** Version **22.10 or higher**. *(Required for frontend development)*
 
 1. **Install nvm and use Node.js v22.10 or higher:**
@@ -63,8 +63,8 @@ The `git clone` command downloads the project files from GitHub. The `cd ai-plat
      This command copies the `.env.example` file to a new file named `.env`. The `.env` file is where you'll configure environment variables for the frontend.
 
    * **Customize `.env`**: Open the `.env` file in your code editor (like VS Code). This file contains configuration variables for the frontend, such as API endpoints and other settings. For local development, the default settings in `.env.example` are usually sufficient to start with. However, you can customize them if needed.
-   
-> [!IMPORTANT]
+
+> \[!IMPORTANT]
 > Do not commit sensitive information to `.env`. Always ensure that `.env` is listed in your `.gitignore` file.
 
 3. **Install Frontend Dependencies:**
@@ -119,7 +119,7 @@ npm run build
 
 ### 3. Backend Setup (API and Server)
 
-> [!IMPORTANT]
+> \[!IMPORTANT]
 > **Python:** Version **3.11 or higher**. *(Required for backend services)*
 
 For managing Python versions, we recommend [uv](https://docs.astral.sh/uv/). You can [install uv](https://docs.astral.sh/uv/getting-started/installation/) and tell it to use Python 3.11 like so:
@@ -198,7 +198,7 @@ VS Code's integrated terminal feature makes managing multiple terminals easy. He
 
    If using Azure OpenAI, your base URL should look like: `https://my-resource-name.openai.azure.com/openai/v1`. To work out of the box, you must use default deployment names, like `gpt-4.1`, `gpt-5-mini-2025-08-07`. [See expected names here](./azure_deployment_names.md).
 
-> [!NOTE]
+> \[!NOTE]
 > When using an Azure base url, the models dropdown will show all models, but **only the models you have created deployments for will work**. You can turn off the other models by clicking your profile icon > admin panel > settings > models.
 
 5. **Start the Backend Development Server:**
@@ -224,6 +224,12 @@ VS Code's integrated terminal feature makes managing multiple terminals easy. He
    This command executes the `start.sh` script. This script contains the command to start the backend production server. *(You can open and examine the `backend/start.sh` file in your code editor to see the exact commands being run if you are curious.)* The backend server will start and print some output to the terminal.
 
 🎉 **Congratulations!** If you have followed all the steps, you should now have both the frontend and backend development servers running locally. Go back to your browser tab where you accessed the frontend (usually <http://localhost:5173>). **Refresh the page.** You should now see the full DPV AI Platform application running in your browser, connected to your local backend!
+
+## Gotchas and Tips
+
+* Make sure to choose "sign up" and not "sign in" when creating your first user account. The first user to sign up will automatically become an admin.
+* Env vars don't override settings stored in the database. If you change an env var and it doesn't seem to have any effect, check the admin panel settings page to see if that setting has a value and change it there if needed.
+* If you use a function pipe to provide models, admins don't have permission by default, so you'll need to either make the models public in admin panel > settings > models, or create a user group and make the models available to that group.
 
 ## Next Steps
 

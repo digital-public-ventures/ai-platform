@@ -105,7 +105,7 @@ for source in log_sources:
 
 log.setLevel(SRC_LOG_LEVELS["CONFIG"])
 
-WEBUI_NAME = os.environ.get("WEBUI_NAME", "Open WebUI")
+WEBUI_NAME = os.environ.get("WEBUI_NAME", "DPV AI Platform")
 
 WEBUI_FAVICON_URL = "static/favicon.png"
 
@@ -321,8 +321,21 @@ ENABLE_REALTIME_CHAT_SAVE = (
 ####################################
 
 REDIS_URL = os.environ.get("REDIS_URL", "")
+REDIS_CLUSTER = os.environ.get("REDIS_CLUSTER", "False").lower() == "true"
+
+REDIS_KEY_PREFIX = os.environ.get("REDIS_KEY_PREFIX", "open-webui")
+
 REDIS_SENTINEL_HOSTS = os.environ.get("REDIS_SENTINEL_HOSTS", "")
 REDIS_SENTINEL_PORT = os.environ.get("REDIS_SENTINEL_PORT", "26379")
+
+# Maximum number of retries for Redis operations when using Sentinel fail-over
+REDIS_SENTINEL_MAX_RETRY_COUNT = os.environ.get("REDIS_SENTINEL_MAX_RETRY_COUNT", "2")
+try:
+    REDIS_SENTINEL_MAX_RETRY_COUNT = int(REDIS_SENTINEL_MAX_RETRY_COUNT)
+    if REDIS_SENTINEL_MAX_RETRY_COUNT < 1:
+        REDIS_SENTINEL_MAX_RETRY_COUNT = 2
+except ValueError:
+    REDIS_SENTINEL_MAX_RETRY_COUNT = 2
 
 ####################################
 # UVICORN WORKERS

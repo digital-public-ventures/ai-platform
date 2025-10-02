@@ -876,6 +876,7 @@ OPENAI_API_KEYS = PersistentConfig(
 )
 
 OPENAI_API_BASE_URLS = os.environ.get("OPENAI_API_BASE_URLS", "")
+
 OPENAI_API_BASE_URLS = (
     OPENAI_API_BASE_URLS if OPENAI_API_BASE_URLS != "" else OPENAI_API_BASE_URL
 )
@@ -884,6 +885,7 @@ OPENAI_API_BASE_URLS = [
     url.strip() if url != "" else "https://api.openai.com/v1"
     for url in OPENAI_API_BASE_URLS.split(";")
 ]
+
 OPENAI_API_BASE_URLS = PersistentConfig(
     "OPENAI_API_BASE_URLS", "openai.api_base_urls", OPENAI_API_BASE_URLS
 )
@@ -922,6 +924,12 @@ TOOL_SERVER_CONNECTIONS = PersistentConfig(
 
 WEBUI_URL = PersistentConfig(
     "WEBUI_URL", "webui.url", os.environ.get("WEBUI_URL", "http://localhost:3000")
+)
+
+SHOW_ONBOARDING = PersistentConfig(
+    "SHOW_ONBOARDING",
+    "ui.show_onboarding",
+    os.environ.get("SHOW_ONBOARDING", "False").lower() == "true",
 )
 
 
@@ -1188,7 +1196,7 @@ ENABLE_ADMIN_CHAT_ACCESS = (
 ENABLE_COMMUNITY_SHARING = PersistentConfig(
     "ENABLE_COMMUNITY_SHARING",
     "ui.enable_community_sharing",
-    os.environ.get("ENABLE_COMMUNITY_SHARING", "True").lower() == "true",
+    os.environ.get("ENABLE_COMMUNITY_SHARING", "False").lower() == "true",
 )
 
 ENABLE_MESSAGE_RATING = PersistentConfig(
@@ -1882,8 +1890,10 @@ RAG_EMBEDDING_BATCH_SIZE = PersistentConfig(
     "RAG_EMBEDDING_BATCH_SIZE",
     "rag.embedding_batch_size",
     int(
-        os.environ.get("RAG_EMBEDDING_BATCH_SIZE")
-        or os.environ.get("RAG_EMBEDDING_OPENAI_BATCH_SIZE", "1")
+        "99"
+        if os.environ.get("RAG_EMBEDDING_ENGINE") == "openai"
+        and not os.environ.get("RAG_EMBEDDING_OPENAI_BATCH_SIZE")
+        else os.environ.get("RAG_EMBEDDING_BATCH_SIZE", "1")
     ),
 )
 
@@ -1916,7 +1926,7 @@ RAG_RERANKING_MODEL_TRUST_REMOTE_CODE = (
 RAG_TEXT_SPLITTER = PersistentConfig(
     "RAG_TEXT_SPLITTER",
     "rag.text_splitter",
-    os.environ.get("RAG_TEXT_SPLITTER", ""),
+    os.environ.get("RAG_TEXT_SPLITTER", "token"),
 )
 
 
@@ -1929,12 +1939,12 @@ TIKTOKEN_ENCODING_NAME = PersistentConfig(
 
 
 CHUNK_SIZE = PersistentConfig(
-    "CHUNK_SIZE", "rag.chunk_size", int(os.environ.get("CHUNK_SIZE", "1000"))
+    "CHUNK_SIZE", "rag.chunk_size", int(os.environ.get("CHUNK_SIZE", "800"))
 )
 CHUNK_OVERLAP = PersistentConfig(
     "CHUNK_OVERLAP",
     "rag.chunk_overlap",
-    int(os.environ.get("CHUNK_OVERLAP", "100")),
+    int(os.environ.get("CHUNK_OVERLAP", "150")),
 )
 
 DEFAULT_RAG_TEMPLATE = """### Task:
